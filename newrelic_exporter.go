@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/log"
@@ -80,16 +81,35 @@ func (a *AppList) get(api *newRelicAPI) error {
 	return nil
 }
 
+func stringInSlice(a string, list[]string) bool {
+	for _, b := range list {
+		if b == a {
+			return true
+			}
+		}
+		return false
+}
+
 func (a *AppList) sendMetrics(ch chan<- Metric) {
 	for _, app := range a.Applications {
 		for name, value := range app.AppSummary {
-			ch <- Metric{
-				App:   app.Name,
-				Name:  name,
-				Value: value,
-				Label: "application_summary",
+			if api.applist == nil {
+				  ch <- Metric{
+					App:   app.Name,
+					Name:  name,
+					Value: value,
+					Label: "application_summary",
+				} else {
+					if stringInSlice(name, api.applist) {
+						ch <- Metric{
+							App: app.Name,
+							Name: name,
+							value: value,
+							Label: "application_summary",
+						}
+					}
+				}
 			}
-		}
 
 		for name, value := range app.UsrSummary {
 			ch <- Metric{
@@ -98,8 +118,9 @@ func (a *AppList) sendMetrics(ch chan<- Metric) {
 				Value: value,
 				Label: "end_user_summary",
 			}
-		}
-	}
+		 }
+	  }
+  }
 }
 
 type MetricNames struct {
@@ -415,7 +436,7 @@ type newRelicAPI struct {
 	client          *http.Client
 }
 
-func NewNewRelicAPI(server string, apikey string, timeout time.Duration) *newRelicAPI {
+func NewNewRelicAPI(server string, apikey string, timeout time.Duration, applist string) *newRelicAPI {
 	parsed, err := url.Parse(server)
 	if err != nil {
 		log.Fatal("Could not parse API URL: ", err)
@@ -491,9 +512,11 @@ func main() {
 	var period int
 	var timeout time.Duration
 	var err error
+	var applist strings.Split(applist, ",")
 
 	flag.StringVar(&apikey, "api.key", "", "NewRelic API key")
 	flag.StringVar(&server, "api.server", "https://api.newrelic.com", "NewRelic API URL")
+	flag.Stringvar(&server, "api.applist", "", "Comma separtated list of app names. Default to all")
 	flag.IntVar(&period, "api.period", 60, "Period of data to extract in seconds")
 	flag.DurationVar(&timeout, "api.timeout", 5*time.Second, "Period of time to wait for an API response in seconds")
 
@@ -502,7 +525,7 @@ func main() {
 
 	flag.Parse()
 
-	api := NewNewRelicAPI(server, apikey, timeout)
+	api := NewNewRelicAPI(server, apikey, timeout, applist)
 	api.period = period
 	exporter := NewExporter()
 	exporter.api = api
